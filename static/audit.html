@@ -248,57 +248,112 @@
             const container = document.getElementById('auditContent');
 
             try {
-                const response = await fetch(`/sessions/${sessionId}/messages`);
-                if (!response.ok) throw new Error('Sessão não encontrada');
+                // Buscar audit trail local (web_chat)
+                const trailResponse = await fetch(`/api/audit/trail/${sessionId}`);
+                let trail = [];
+                let trailStats = {};
 
-                const data = await response.json();
-                const messages = data.messages || [];
-
-                if (messages.length === 0) {
-                    container.innerHTML = `
-                        <div class="empty-state">
-                            <h2>Nenhuma mensagem</h2>
-                            <p>Esta sessão não tem mensagens</p>
-                        </div>
-                    `;
-                    return;
+                if (trailResponse.ok) {
+                    const trailData = await trailResponse.json();
+                    trail = trailData.trail || [];
+                    trailStats = trailData.stats || {};
                 }
 
-                const firstMsg = messages[0];
-                const lastMsg = messages[messages.length - 1];
+                // Tentar buscar tool calls do backend claude_rag_sdk (opcional)
+                let toolCalls = [];
+                try {
+                    const response = await fetch(`http://localhost:8001/v1/audit/tools?session_id=${sessionId}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        toolCalls = data.recent || [];
+                    }
+                } catch (e) {
+                    // Backend pode não estar disponível
+                }
 
                 container.innerHTML = `
                     <div class="audit-container">
                         <div class="session-info">
-                            <h2 style="margin-bottom: 1rem; color: var(--claude-text);">📊 Informações da Sessão</h2>
+                            <h2 style="margin-bottom: 1rem; color: var(--claude-text);">📊 Estatísticas</h2>
                             <div class="info-row">
                                 <div class="info-label">Session ID:</div>
                                 <div class="info-value">${sessionId}</div>
                             </div>
                             <div class="info-row">
-                                <div class="info-label">Total Mensagens:</div>
-                                <div class="info-value">${messages.length}</div>
+                                <div class="info-label">Total de Passos:</div>
+                                <div class="info-value">${trailStats.total_steps || 0}</div>
                             </div>
                             <div class="info-row">
-                                <div class="info-label">Primeira mensagem:</div>
-                                <div class="info-value">${new Date(firstMsg.timestamp * 1000).toLocaleString('pt-BR')}</div>
+                                <div class="info-label">Erros:</div>
+                                <div class="info-value" style="color: ${(trailStats.errors || 0) > 0 ? '#dc2626' : '#059669'}">${trailStats.errors || 0}</div>
                             </div>
                             <div class="info-row">
-                                <div class="info-label">Última atualização:</div>
-                                <div class="info-value">${new Date(lastMsg.timestamp * 1000).toLocaleString('pt-BR')}</div>
+                                <div class="info-label">Duração Total:</div>
+                                <div class="info-value">${trailStats.total_duration_ms || 0}ms</div>
                             </div>
                         </div>
 
-                        <h2 style="margin-bottom: 1rem; color: var(--claude-text);">💬 Histórico Completo</h2>
-                        ${messages.map((msg, index) => `
-                            <div class="message-item ${msg.role}">
-                                <div class="message-header">
-                                    <div class="message-role ${msg.role}">${msg.role === 'user' ? 'Usuário' : 'Assistente'}</div>
-                                    <div class="message-timestamp">${new Date(msg.timestamp * 1000).toLocaleTimeString('pt-BR')}</div>
-                                </div>
-                                <div class="message-content">${msg.content}</div>
+                        ${trail.length > 0 ? `
+                            <h2 style="margin: 1.5rem 0 1rem; color: var(--claude-text);">🔍 Passos Executados</h2>
+                            ${trail.map(step => {
+                                const statusColor = step.status === 'success' ? '#059669' :
+                                                   step.status === 'error' ? '#dc2626' : '#d97706';
+                                const icon = step.status === 'success' ? '✓' :
+                                            step.status === 'error' ? '✗' : '⏳';
+
+                                const stepNames = {
+                                    'create_sandbox': '🏗️ Criar Sandbox E2B',
+                                    'setup_sandbox': '📦 Instalar Dependências',
+                                    'rag_search': '📚 Buscar RAG',
+                                    'minimax_api': '🤖 Chamar Minimax API',
+                                    'extract_artifacts': '📄 Extrair Artefatos'
+                                };
+
+                                return `
+                                    <div class="message-item">
+                                        <div class="message-header">
+                                            <div class="message-role" style="color: ${statusColor}">
+                                                ${icon} ${stepNames[step.step] || step.step}
+                                            </div>
+                                            <div class="message-timestamp">${step.duration_ms || 0}ms</div>
+                                        </div>
+                                        <div class="message-content" style="font-size: 0.875rem;">
+                                            ${step.error ? `<strong style="color: #dc2626;">Erro:</strong> ${step.error}` :
+                                              step.details ? `<strong>Detalhes:</strong> ${JSON.stringify(step.details)}` :
+                                              'Executado com sucesso'}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        ` : `
+                            <div class="empty-state">
+                                <h2>Nenhum passo registrado</h2>
+                                <p>Faça uma pergunta no chat para ver os passos</p>
                             </div>
-                        `).join('')}
+                        `}
+
+                        ${toolCalls.length > 0 ? `
+                            <h2 style="margin: 1.5rem 0 1rem; color: var(--claude-text);">🔧 Tool Calls (AgentFS)</h2>
+                            ${toolCalls.map(tool => {
+                                const statusColor = tool.status === 'success' ? '#059669' :
+                                                   tool.status === 'error' ? '#dc2626' : '#d97706';
+                                return `
+                                    <div class="message-item">
+                                        <div class="message-header">
+                                            <div class="message-role" style="color: ${statusColor}">
+                                                ${tool.status === 'success' ? '✓' : tool.status === 'error' ? '✗' : '⏳'} ${tool.name}
+                                            </div>
+                                            <div class="message-timestamp">${tool.duration_ms || 0}ms</div>
+                                        </div>
+                                        <div class="message-content" style="font-size: 0.875rem;">
+                                            ${tool.error ? `<strong style="color: #dc2626;">Erro:</strong> ${tool.error}` :
+                                              tool.output ? `<strong>Output:</strong> ${JSON.stringify(tool.output).substring(0, 200)}...` :
+                                              'Executado com sucesso'}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        ` : ''}
                     </div>
                 `;
 
@@ -307,6 +362,8 @@
                     <div class="empty-state">
                         <h2>Erro ao carregar audit</h2>
                         <p>${error.message}</p>
+                        <br>
+                        <p>Certifique-se que o <strong>claude_rag_sdk</strong> está rodando na porta <strong>8001</strong></p>
                     </div>
                 `;
             }

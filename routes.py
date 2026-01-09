@@ -10,6 +10,7 @@ from .models import (
     StreamChatRequest, SessionInfo, SessionUpdateRequest, ChatMessage
 )
 from .sessions import SessionManager
+from .audit import AuditTrail
 from claude_mini_sdk.sandbox_manager import SandboxManager
 from claude_mini_sdk.config import MINIMAX_CONFIG
 
@@ -206,29 +207,42 @@ async def health():
 async def generate_sse_response(message: str, session_id: str, use_rag: bool = False):
     """Gera resposta SSE no formato esperado pelo Angular."""
     try:
+        # Rastrear: Criar sandbox
+        AuditTrail.start_step(session_id, "create_sandbox")
+
         with SandboxManager.create_sandbox() as sandbox:
+            AuditTrail.end_step(session_id, "create_sandbox", "success")
             print(f"✅ Sandbox SSE criado: {sandbox.sandbox_id}")
 
+            # Rastrear: Setup sandbox
+            AuditTrail.start_step(session_id, "setup_sandbox")
             if not SandboxManager.setup_sandbox(sandbox):
+                AuditTrail.end_step(session_id, "setup_sandbox", "error", "Falha ao configurar")
                 yield f"data: {json.dumps({'error': 'Falha ao configurar sandbox'})}\n\n"
                 return
+            AuditTrail.end_step(session_id, "setup_sandbox", "success")
 
             # Adicionar mensagem do usuário à sessão
             SessionManager.add_message(session_id, "user", message)
 
             # Se RAG está ativo, buscar contexto primeiro
             query_message = message
+            rag_docs_count = 0
+
             if use_rag:
                 try:
+                    # Rastrear: Busca RAG
+                    AuditTrail.start_step(session_id, "rag_search", {"query": message[:50]})
+
                     import httpx
                     async with httpx.AsyncClient() as client:
-                        # Usar endpoint de teste (sem autenticação)
                         rag_response = await client.get(
                             f'http://localhost:8001/v1/rag/search/test?query={message}&top_k=3'
                         )
                         if rag_response.status_code == 200:
                             rag_data = rag_response.json()
                             results = rag_data.get('results', [])
+                            rag_docs_count = len(results)
 
                             if results:
                                 # Montar contexto com documentos
@@ -247,14 +261,26 @@ NÃO use conhecimento geral ou informações externas.
 
 Pergunta: {message}"""
                                 print(f"📚 RAG: {len(results)} documentos encontrados")
+                                AuditTrail.end_step(session_id, "rag_search", "success")
+                            else:
+                                AuditTrail.end_step(session_id, "rag_search", "success", "Nenhum documento encontrado")
                 except Exception as e:
                     print(f"⚠️ Erro ao buscar RAG: {e}")
+                    AuditTrail.end_step(session_id, "rag_search", "error", str(e))
 
-            # Obter resposta do modelo
+            # Rastrear: Chamar Minimax
+            AuditTrail.start_step(session_id, "minimax_api", {"rag_used": use_rag, "docs_found": rag_docs_count})
             response_text = SandboxManager.send_message(sandbox, query_message)
+            AuditTrail.end_step(session_id, "minimax_api", "success")
 
-            # Detectar e salvar artefatos automaticamente
-            modified_response, artifacts_count = extract_and_save_artifacts(response_text)
+            # Rastrear: Extrair artefatos
+            if response_text:
+                AuditTrail.start_step(session_id, "extract_artifacts")
+                modified_response, artifacts_count = extract_and_save_artifacts(response_text)
+                AuditTrail.end_step(session_id, "extract_artifacts", "success", f"{artifacts_count} artefatos" if artifacts_count > 0 else None)
+            else:
+                modified_response = ""
+                artifacts_count = 0
 
             # Usar resposta modificada para streaming (sem código se foi extraído)
             words = modified_response.split()
@@ -481,3 +507,18 @@ async def delete_artifact(filename: str):
         return {"status": "deleted", "filename": filename}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao deletar: {str(e)}")
+
+
+# ===== ENDPOINTS DE AUDIT =====
+
+@router.get("/api/audit/trail/{session_id}")
+async def get_audit_trail(session_id: str):
+    """Retorna audit trail de uma sessão (passos executados)."""
+    trail = AuditTrail.get_trail(session_id)
+    stats = AuditTrail.get_stats(session_id)
+
+    return {
+        "session_id": session_id,
+        "trail": trail,
+        "stats": stats
+    }
