@@ -436,6 +436,70 @@
             color: var(--claude-text-secondary);
         }
 
+        /* Artifacts Notification */
+        .artifacts-notification {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            background: var(--claude-surface);
+            border: 2px solid var(--claude-accent);
+            border-radius: var(--radius-sm);
+            padding: 1rem 1.25rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            animation: slideInRight 0.3s ease;
+            z-index: 1000;
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .artifacts-notification-icon {
+            font-size: 1.5rem;
+        }
+
+        .artifacts-notification-content {
+            flex: 1;
+        }
+
+        .artifacts-notification-title {
+            font-weight: 600;
+            color: var(--claude-text);
+            margin-bottom: 0.25rem;
+        }
+
+        .artifacts-notification-desc {
+            font-size: 0.875rem;
+            color: var(--claude-text-secondary);
+        }
+
+        .artifacts-notification-link {
+            background: var(--claude-accent);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.15s ease;
+        }
+
+        .artifacts-notification-link:hover {
+            background: var(--claude-accent-hover);
+        }
+
         /* Responsive */
         @media (max-width: 640px) {
             .app-container {
@@ -461,7 +525,7 @@
     <div class="app-container">
         <div class="header">
             <h1>Claude Chat</h1>
-            <p class="subtitle">Executando em sandbox E2B isolado</p>
+            <p class="subtitle"><a href="/artifacts" target="_blank" style="color: var(--claude-accent); text-decoration: none;">Artefatos</a> | <a href="/recents" style="color: var(--claude-accent); text-decoration: none;">Ver conversas</a></p>
         </div>
 
         <div class="chat-container">
@@ -523,6 +587,7 @@
 
         let selectedModel = 'minimax';
         let isLoading = false;
+        let currentSessionId = null;
 
         const messagesContainer = document.getElementById('messages');
         const emptyState = document.getElementById('emptyState');
@@ -532,6 +597,14 @@
         const modelButton = document.getElementById('modelButton');
         const modelDropdown = document.getElementById('modelDropdown');
         const selectedModelName = document.getElementById('selectedModelName');
+
+        // Verificar se tem session_id na URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionParam = urlParams.get('session');
+        if (sessionParam) {
+            currentSessionId = sessionParam;
+            loadSession(sessionParam);
+        }
 
         // Model selector toggle
         modelButton.addEventListener('click', (e) => {
@@ -640,6 +713,10 @@
                                     assistantMessage += parsed.text;
                                     updateMessage(messageId, assistantMessage);
                                 }
+                                if (parsed.artifacts) {
+                                    // Mostrar notificação de artefatos criados
+                                    showArtifactsNotification(parsed.artifacts);
+                                }
                                 if (parsed.error) {
                                     throw new Error(parsed.error);
                                 }
@@ -727,6 +804,49 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function showArtifactsNotification(count) {
+            const notification = document.createElement('div');
+            notification.className = 'artifacts-notification';
+            notification.innerHTML = `
+                <div class="artifacts-notification-icon">📄</div>
+                <div class="artifacts-notification-content">
+                    <div class="artifacts-notification-title">Artefatos criados!</div>
+                    <div class="artifacts-notification-desc">${count} arquivo(s) disponível(is)</div>
+                </div>
+                <a href="/artifacts" target="_blank" class="artifacts-notification-link">Ver artefatos</a>
+            `;
+            document.body.appendChild(notification);
+
+            // Remover após 5 segundos
+            setTimeout(() => {
+                notification.style.animation = 'slideInRight 0.3s ease reverse';
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+        }
+
+        async function loadSession(sessionId) {
+            try {
+                emptyState.style.display = 'none';
+                const loadingId = addLoadingIndicator();
+
+                const response = await fetch(`/sessions/${sessionId}/messages`);
+                if (!response.ok) throw new Error('Sessão não encontrada');
+
+                const data = await response.json();
+                removeElement(loadingId);
+
+                // Renderizar mensagens
+                if (data.messages && data.messages.length > 0) {
+                    data.messages.forEach(msg => {
+                        addMessage(msg.role, msg.content);
+                    });
+                }
+            } catch (error) {
+                console.error('Erro ao carregar sessão:', error);
+                emptyState.style.display = 'flex';
+            }
         }
 
         // Event listeners

@@ -17,6 +17,78 @@ router = APIRouter()
 CURRENT_DIR = Path(__file__).parent
 
 
+# ===== UTILITÁRIOS =====
+
+def extract_and_save_artifacts(response_text: str) -> tuple[str, int]:
+    """
+    Extrai blocos de código da resposta e salva como artefatos.
+    Retorna: (resposta_modificada, quantidade_de_artefatos)
+    """
+    import re
+    from datetime import datetime
+
+    # Regex para detectar code blocks markdown: ```lang\ncode\n```
+    pattern = r'```(\w+)?\n(.*?)```'
+    matches = re.findall(pattern, response_text, re.DOTALL)
+
+    if not matches:
+        return response_text, 0
+
+    artifacts_dir = Path("artifacts")
+    artifacts_dir.mkdir(exist_ok=True)
+
+    count = 0
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filenames = []
+
+    for i, (lang, code) in enumerate(matches):
+        # Determinar extensão baseado na linguagem
+        ext_map = {
+            'html': '.html',
+            'htm': '.html',
+            'css': '.css',
+            'javascript': '.js',
+            'js': '.js',
+            'python': '.py',
+            'py': '.py',
+            'json': '.json',
+            'xml': '.xml',
+            'sql': '.sql',
+            'bash': '.sh',
+            'shell': '.sh',
+            'typescript': '.ts',
+            'tsx': '.tsx',
+            'jsx': '.jsx',
+        }
+
+        ext = ext_map.get(lang.lower(), '.txt') if lang else '.txt'
+        filename = f"artifact_{timestamp}_{i+1}{ext}"
+
+        # Salvar arquivo
+        file_path = artifacts_dir / filename
+        file_path.write_text(code.strip())
+        print(f"📄 Artefato extraído e salvo: {filename}")
+        filenames.append(filename)
+        count += 1
+
+    # Modificar resposta: remover blocos de código e adicionar mensagem
+    if count > 0:
+        # Remover todos os code blocks
+        modified_response = re.sub(pattern, '', response_text, flags=re.DOTALL)
+        # Limpar linhas vazias extras
+        modified_response = re.sub(r'\n{3,}', '\n\n', modified_response).strip()
+
+        # Adicionar mensagem sobre artefatos
+        artifact_msg = f"\n\n✅ **{count} artefato(s) criado(s)!** "
+        artifact_msg += f"[Clique aqui para visualizar](/artifacts)"
+
+        modified_response = modified_response + artifact_msg
+
+        return modified_response, count
+
+    return response_text, 0
+
+
 # ===== ENDPOINTS EXISTENTES (HTML/Legacy) =====
 
 @router.get("/")
@@ -26,6 +98,18 @@ async def home():
         raise HTTPException(
             status_code=404,
             detail="index.html não encontrado"
+        )
+    return FileResponse(html_path)
+
+
+@router.get("/recents")
+async def recents_page():
+    """Página de conversas recentes."""
+    html_path = CURRENT_DIR / "static" / "recents.html"
+    if not html_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="recents.html não encontrado"
         )
     return FileResponse(html_path)
 
@@ -87,8 +171,11 @@ async def generate_sse_response(message: str, session_id: str):
             # Obter resposta do modelo
             response_text = SandboxManager.send_message(sandbox, message)
 
-            # Simular streaming enviando em chunks
-            words = response_text.split()
+            # Detectar e salvar artefatos automaticamente
+            modified_response, artifacts_count = extract_and_save_artifacts(response_text)
+
+            # Usar resposta modificada para streaming (sem código se foi extraído)
+            words = modified_response.split()
             accumulated = ""
 
             for i, word in enumerate(words):
@@ -106,8 +193,12 @@ async def generate_sse_response(message: str, session_id: str):
                 yield f"data: {json.dumps(chunk_data)}\n\n"
                 await asyncio.sleep(0.02)  # Pequeno delay para simular streaming
 
-            # Adicionar resposta completa à sessão
-            SessionManager.add_message(session_id, "assistant", response_text)
+            # Adicionar resposta modificada à sessão
+            SessionManager.add_message(session_id, "assistant", modified_response)
+
+            if artifacts_count > 0:
+                # Notificar sobre artefatos
+                yield f"data: {json.dumps({'artifacts': artifacts_count})}\n\n"
 
             # Sinal de fim
             yield "data: [DONE]\n\n"
@@ -212,3 +303,78 @@ async def reset_session():
         message_count=0,
         model=session.model
     )
+
+
+# ===== ENDPOINTS DE ARTEFATOS =====
+
+@router.get("/artifacts")
+async def artifacts_page_or_list():
+    """Retorna página HTML ou lista JSON de artefatos."""
+    from fastapi import Request
+    from starlette.requests import Request as StarletteRequest
+
+    # Se é requisição do browser (Accept: text/html), retornar página
+    # Se é requisição AJAX/fetch (Accept: application/json), retornar JSON
+    html_path = CURRENT_DIR / "static" / "artifacts.html"
+    if html_path.exists():
+        return FileResponse(html_path)
+
+    # Fallback para JSON
+    artifacts_dir = Path("artifacts")
+    if not artifacts_dir.exists():
+        return {"files": []}
+
+    files = []
+    for file_path in artifacts_dir.iterdir():
+        if file_path.is_file():
+            stat = file_path.stat()
+            files.append({
+                "name": file_path.name,
+                "size": stat.st_size,
+                "created": stat.st_mtime
+            })
+
+    return {"files": sorted(files, key=lambda x: x["created"], reverse=True)}
+
+
+@router.get("/api/artifacts")
+async def list_artifacts_api():
+    """Endpoint API para listar artefatos (JSON)."""
+    artifacts_dir = Path("artifacts")
+    if not artifacts_dir.exists():
+        return {"files": []}
+
+    files = []
+    for file_path in artifacts_dir.iterdir():
+        if file_path.is_file():
+            stat = file_path.stat()
+            files.append({
+                "name": file_path.name,
+                "size": stat.st_size,
+                "created": stat.st_mtime
+            })
+
+    return {"files": sorted(files, key=lambda x: x["created"], reverse=True)}
+
+
+@router.get("/artifacts/{filename}")
+async def get_artifact(filename: str):
+    """Retorna conteúdo de um artefato."""
+    artifacts_dir = Path("artifacts")
+    file_path = artifacts_dir / filename
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Artefato não encontrado")
+
+    # Retornar como HTML para visualização
+    content = file_path.read_text()
+    ext = file_path.suffix.lower()
+
+    # Se for HTML, retornar direto
+    if ext in [".html", ".htm"]:
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(content=content)
+
+    # Outros tipos, retornar como texto
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(content=content)
