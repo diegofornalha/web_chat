@@ -151,6 +151,24 @@
             border-color: var(--claude-accent);
         }
 
+        .delete-btn {
+            padding: 0.5rem 0.875rem;
+            background: var(--claude-surface);
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            color: #dc2626;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .delete-btn:hover {
+            background: #dc2626;
+            color: white;
+            border-color: #dc2626;
+        }
+
         .session-title {
             font-weight: 600;
             font-size: 1rem;
@@ -294,6 +312,9 @@
                                 <a href="/audit?session=${session.session_id}" class="audit-btn" onclick="event.stopPropagation()">
                                     🔍 Audit
                                 </a>
+                                <button class="delete-btn" onclick="event.stopPropagation(); deleteSession('${session.session_id}')">
+                                    🗑️ Deletar
+                                </button>
                             </div>
                         </div>
                     `;
@@ -306,6 +327,27 @@
                         <p>${error.message}</p>
                     </div>
                 `;
+            }
+        }
+
+        async function deleteSession(sessionId) {
+            try {
+                const response = await fetch(`/sessions/${sessionId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) throw new Error('Erro ao deletar sessão');
+
+                // Limpar localStorage se for a sessão atual
+                const savedSession = localStorage.getItem('web_chat_session_id');
+                if (savedSession === sessionId) {
+                    localStorage.removeItem('web_chat_session_id');
+                }
+
+                // Recarregar lista
+                loadSessions();
+            } catch (error) {
+                alert('Erro ao deletar: ' + error.message);
             }
         }
 
