@@ -233,23 +233,31 @@
         }
 
         async function deleteDocument(docId, docName) {
-            if (!confirm(`Tem certeza que deseja deletar "${docName}"?\n\nEsta ação não pode ser desfeita.`)) {
-                return;
-            }
+            const deleteBtn = document.getElementById('deleteBtn');
+            deleteBtn.disabled = true;
+            deleteBtn.textContent = '⏳ Deletando...';
 
             try {
                 const response = await fetch(`http://localhost:8001/v1/rag/documents/${docId}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    headers: {
+                        'X-API-Key': 'rag_ol8q9wJtY4ERFjBdgFH2BKgCXqQl3qMqa8cWmuQXw1k'
+                    }
                 });
 
                 if (!response.ok) {
-                    throw new Error('Erro ao deletar');
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Erro ao deletar');
                 }
 
-                alert('✓ Documento deletado com sucesso!');
-                window.location.href = '/documents';
+                deleteBtn.textContent = '✓ Deletado!';
+                setTimeout(() => {
+                    window.location.href = '/documents';
+                }, 500);
 
             } catch (error) {
+                deleteBtn.textContent = '🗑️ Deletar Documento';
+                deleteBtn.disabled = false;
                 alert('Erro ao deletar: ' + error.message);
             }
         }

@@ -637,12 +637,19 @@
         const modelDropdown = document.getElementById('modelDropdown');
         const selectedModelName = document.getElementById('selectedModelName');
 
-        // Verificar se tem session_id na URL
+        // Carregar session_id: primeiro URL, depois localStorage
         const urlParams = new URLSearchParams(window.location.search);
         const sessionParam = urlParams.get('session');
         if (sessionParam) {
             currentSessionId = sessionParam;
             loadSession(sessionParam);
+        } else {
+            // Tentar carregar do localStorage
+            const savedSession = localStorage.getItem('web_chat_session_id');
+            if (savedSession) {
+                currentSessionId = savedSession;
+                loadSession(savedSession);
+            }
         }
 
         // Model selector toggle
@@ -722,7 +729,8 @@
                 const requestBody = {
                     message: message,
                     model: isMinimax ? 'minimax' : selectedModel,
-                    use_rag: useRag  // Envia sempre (funciona para Minimax também)
+                    use_rag: useRag,  // Envia sempre (funciona para Minimax também)
+                    session_id: currentSessionId  // Continuar sessão existente
                 };
 
                 const response = await fetch(endpoint, {
@@ -758,6 +766,15 @@
 
                             try {
                                 const parsed = JSON.parse(data);
+
+                                // Processar session_init primeiro (evento prioritário)
+                                if (parsed.type === 'session_init' && parsed.session_id) {
+                                    currentSessionId = parsed.session_id;
+                                    localStorage.setItem('web_chat_session_id', parsed.session_id);
+                                    window.history.replaceState({}, '', `/?session=${currentSessionId}`);
+                                    continue; // Não é chunk de texto
+                                }
+
                                 if (parsed.text) {
                                     assistantMessage += parsed.text;
                                     updateMessage(messageId, assistantMessage);

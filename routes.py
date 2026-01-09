@@ -33,6 +33,13 @@ def extract_and_save_artifacts(response_text: str) -> tuple[str, int]:
     pattern = r'```(\w+)?\s*(.*?)```'
     matches = re.findall(pattern, response_text, re.DOTALL)
 
+    # Se não encontrou code blocks, verificar se é HTML direto
+    if not matches and ('<!doctype' in response_text.lower() or '<html' in response_text.lower()):
+        # Extrair HTML direto da resposta
+        html_match = re.search(r'<!doctype.*?</html>', response_text, re.DOTALL | re.IGNORECASE)
+        if html_match:
+            matches = [('html', html_match.group(0))]
+
     if not matches:
         return response_text, 0
 
@@ -244,6 +251,9 @@ async def health():
 
 async def generate_sse_response(message: str, session_id: str, use_rag: bool = False):
     """Gera resposta SSE no formato esperado pelo Angular."""
+    # Enviar session_id imediatamente no início (antes de qualquer processamento)
+    yield f"data: {json.dumps({'type': 'session_init', 'session_id': session_id})}\n\n"
+
     try:
         # Rastrear: Criar sandbox
         AuditTrail.start_step(session_id, "create_sandbox")
@@ -365,8 +375,13 @@ Pergunta: {message}"""
 @router.post("/chat/stream")
 async def chat_stream(req: StreamChatRequest):
     """Endpoint de chat com SSE streaming para Angular SDK."""
+    # DEBUG: Log da requisição
+    print(f"🔍 DEBUG /chat/stream - req.session_id: {req.session_id}")
+    print(f"🔍 DEBUG - Sessions disponíveis: {list(SessionManager._sessions.keys())}")
+
     # Buscar ou criar sessão
     session = SessionManager.get_or_create_session(req.session_id, req.model or "minimax")
+    print(f"🔍 DEBUG - Sessão retornada: {session.session_id} (nova? {session.session_id != req.session_id})")
 
     return StreamingResponse(
         generate_sse_response(req.message, session.session_id, req.use_rag or False),
