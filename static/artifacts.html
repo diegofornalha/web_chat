@@ -106,9 +106,7 @@
             border: 1px solid var(--claude-border);
             border-radius: var(--radius-sm);
             padding: 1.25rem;
-            cursor: pointer;
             transition: all 0.15s ease;
-            text-decoration: none;
             color: inherit;
             display: block;
         }
@@ -117,6 +115,47 @@
             border-color: var(--claude-accent);
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .artifact-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .artifact-info {
+            flex: 1;
+            cursor: pointer;
+        }
+
+        .artifact-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .artifact-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            border: 1px solid var(--claude-border);
+            background: var(--claude-surface);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+            font-size: 1rem;
+        }
+
+        .artifact-btn:hover {
+            background: var(--claude-bg);
+            border-color: var(--claude-accent);
+        }
+
+        .artifact-btn.delete:hover {
+            background: #fee2e2;
+            border-color: #ef4444;
         }
 
         .artifact-icon {
@@ -290,14 +329,26 @@
                 container.innerHTML = `
                     <div class="artifacts-grid">
                         ${files.map(file => `
-                            <a href="/artifacts/${file.name}" target="_blank" class="artifact-card">
-                                <div class="artifact-icon">${getFileIcon(file.name)}</div>
-                                <div class="artifact-name">${file.name}</div>
+                            <div class="artifact-card">
+                                <div class="artifact-header">
+                                    <div class="artifact-info" onclick="window.open('/artifacts/${file.name}', '_blank')">
+                                        <div class="artifact-icon">${getFileIcon(file.name)}</div>
+                                        <div class="artifact-name">${file.name}</div>
+                                    </div>
+                                    <div class="artifact-actions">
+                                        <button class="artifact-btn" onclick="copyLink('${file.name}')" title="Copiar link">
+                                            📋
+                                        </button>
+                                        <button class="artifact-btn delete" onclick="deleteArtifact('${file.name}')" title="Deletar">
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </div>
                                 <div class="artifact-meta">
                                     <div>${formatSize(file.size)}</div>
                                     <div>${formatDate(file.created)}</div>
                                 </div>
-                            </a>
+                            </div>
                         `).join('')}
                     </div>
                 `;
@@ -309,6 +360,74 @@
                         <p>${error.message}</p>
                     </div>
                 `;
+            }
+        }
+
+        function copyLink(filename) {
+            const link = `${window.location.origin}/artifacts/${filename}`;
+            navigator.clipboard.writeText(link).then(() => {
+                // Mostrar feedback
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    bottom: 2rem;
+                    right: 2rem;
+                    background: var(--claude-accent);
+                    color: white;
+                    padding: 1rem 1.5rem;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                    z-index: 1000;
+                    animation: slideInRight 0.3s ease;
+                `;
+                notification.textContent = '✓ Link copiado!';
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.remove();
+                }, 2000);
+            });
+        }
+
+        async function deleteArtifact(filename) {
+            if (!confirm(`Tem certeza que deseja deletar "${filename}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/artifacts/${filename}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Erro ao deletar');
+                }
+
+                // Recarregar lista
+                loadArtifacts();
+
+                // Mostrar feedback
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    bottom: 2rem;
+                    right: 2rem;
+                    background: #065f46;
+                    color: white;
+                    padding: 1rem 1.5rem;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                    z-index: 1000;
+                `;
+                notification.textContent = '✓ Artefato deletado!';
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.remove();
+                }, 2000);
+
+            } catch (error) {
+                alert('Erro ao deletar artefato: ' + error.message);
             }
         }
 

@@ -138,6 +138,30 @@ async def ingest_page():
     return FileResponse(html_path)
 
 
+@router.get("/audit")
+async def audit_page():
+    """Página de audit de sessão."""
+    html_path = CURRENT_DIR / "static" / "audit.html"
+    if not html_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="audit.html não encontrado"
+        )
+    return FileResponse(html_path)
+
+
+@router.get("/documents")
+async def documents_page():
+    """Página de documentos RAG."""
+    html_path = CURRENT_DIR / "static" / "documents.html"
+    if not html_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="documents.html não encontrado"
+        )
+    return FileResponse(html_path)
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     try:
@@ -436,3 +460,24 @@ async def get_artifact(filename: str):
     # Outros tipos, retornar como texto
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse(content=content)
+
+
+@router.delete("/artifacts/{filename}")
+async def delete_artifact(filename: str):
+    """Deleta um artefato."""
+    artifacts_dir = Path("artifacts")
+    file_path = artifacts_dir / filename
+
+    # Validação de segurança - apenas filenames, não paths
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Nome de arquivo inválido")
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Artefato não encontrado")
+
+    try:
+        file_path.unlink()
+        print(f"🗑️ Artefato deletado: {filename}")
+        return {"status": "deleted", "filename": filename}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao deletar: {str(e)}")
