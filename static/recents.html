@@ -107,11 +107,12 @@
             border-radius: var(--radius-sm);
             border: 1px solid var(--claude-border);
             margin-bottom: 1rem;
-            cursor: pointer;
             transition: all 0.15s ease;
             text-decoration: none;
             color: inherit;
-            display: block;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
         }
 
         .session-item:hover {
@@ -119,6 +120,35 @@
             background: var(--claude-bg);
             transform: translateY(-1px);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .session-content {
+            flex: 1;
+            cursor: pointer;
+        }
+
+        .session-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .audit-btn {
+            padding: 0.5rem 0.875rem;
+            background: var(--claude-surface);
+            border: 1px solid var(--claude-border);
+            border-radius: 6px;
+            color: var(--claude-text);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            text-decoration: none;
+        }
+
+        .audit-btn:hover {
+            background: var(--claude-accent);
+            color: white;
+            border-color: var(--claude-accent);
         }
 
         .session-title {
@@ -251,14 +281,21 @@
                     const messages = session.message_count || 0;
 
                     return `
-                        <a href="/?session=${session.session_id}" class="session-item">
-                            <div class="session-title">${title}</div>
-                            <div class="session-meta">
-                                <div class="session-meta-item">💬 ${messages} mensagem${messages !== 1 ? 's' : ''}</div>
-                                <div class="session-meta-item">📅 ${dateStr}</div>
-                                <div class="session-meta-item">🕐 ${timeStr}</div>
+                        <div class="session-item">
+                            <div class="session-content" onclick="window.location.href='/?session=${session.session_id}'">
+                                <div class="session-title">${title}</div>
+                                <div class="session-meta">
+                                    <div class="session-meta-item">💬 ${messages} mensagem${messages !== 1 ? 's' : ''}</div>
+                                    <div class="session-meta-item">📅 ${dateStr}</div>
+                                    <div class="session-meta-item">🕐 ${timeStr}</div>
+                                </div>
                             </div>
-                        </a>
+                            <div class="session-actions">
+                                <a href="/audit?session=${session.session_id}" class="audit-btn" onclick="event.stopPropagation()">
+                                    🔍 Audit
+                                </a>
+                            </div>
+                        </div>
                     `;
                 }).join('');
 

@@ -356,6 +356,40 @@
             color: var(--claude-text-secondary);
         }
 
+        /* RAG Toggle */
+        .rag-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .rag-toggle input[type="checkbox"] {
+            display: none;
+        }
+
+        .rag-label {
+            padding: 0.5rem 0.75rem;
+            background: var(--claude-surface);
+            border: 1px solid var(--claude-border);
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--claude-text-secondary);
+            transition: all 0.15s ease;
+        }
+
+        .rag-toggle input:checked + .rag-label {
+            background: var(--claude-accent);
+            color: white;
+            border-color: var(--claude-accent);
+        }
+
+        .rag-toggle:hover .rag-label {
+            border-color: var(--claude-accent);
+        }
+
         /* Send Button */
         .send-button {
             width: 40px;
@@ -525,7 +559,7 @@
     <div class="app-container">
         <div class="header">
             <h1>Claude Chat</h1>
-            <p class="subtitle"><a href="/artifacts" target="_blank" style="color: var(--claude-accent); text-decoration: none;">Artefatos</a> | <a href="/recents" style="color: var(--claude-accent); text-decoration: none;">Ver conversas</a></p>
+            <p class="subtitle"><a href="/ingest" target="_blank" style="color: var(--claude-accent); text-decoration: none;">Upload PDFs</a> | <a href="/artifacts" target="_blank" style="color: var(--claude-accent); text-decoration: none;">Artefatos</a> | <a href="/recents" style="color: var(--claude-accent); text-decoration: none;">Ver conversas</a> | <a href="/config" target="_blank" style="color: var(--claude-accent); text-decoration: none;">Configurações</a></p>
         </div>
 
         <div class="chat-container">
@@ -543,6 +577,11 @@
                         placeholder="Digite sua mensagem..."
                         rows="1"
                     ></textarea>
+
+                    <label class="rag-toggle" title="Buscar em documentos antes de responder">
+                        <input type="checkbox" id="useRag" checked>
+                        <span class="rag-label">📚 RAG</span>
+                    </label>
 
                     <div class="model-selector" id="modelSelector">
                         <button class="model-button" id="modelButton">
@@ -632,6 +671,8 @@
 
                 // Update button text
                 const modelNames = {
+                    haiku: 'Haiku 3.5',
+                    sonnet: 'Sonnet 4',
                     minimax: 'Minimax M2',
                     glm: 'GLM'
                 };
@@ -658,28 +699,36 @@
             // Hide empty state
             emptyState.style.display = 'none';
 
+            // Verificar se RAG está ativo
+            const useRag = document.getElementById('useRag').checked;
+
             // Add user message
             addMessage('user', message);
             messageInput.value = '';
             messageInput.style.height = 'auto';
 
+            // Escolhe endpoint e prepara request
+            const isMinimax = selectedModel === 'minimax';
+
             // Add loading indicator
-            const loadingId = addLoadingIndicator();
+            const loadingId = addLoadingIndicator(useRag && !isMinimax);
 
             try {
                 // Escolhe endpoint baseado no modelo
-                const isMinimax = selectedModel === 'minimax';
                 const endpoint = isMinimax
                     ? '/chat/stream'  // Minimax via web_chat local (E2B)
                     : 'http://localhost:8001/v1/chat/stream';  // Claude via backend
 
+                const requestBody = {
+                    message: message,
+                    model: isMinimax ? 'minimax' : selectedModel,
+                    use_rag: useRag  // Envia sempre (funciona para Minimax também)
+                };
+
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: message,
-                        model: isMinimax ? 'minimax' : selectedModel
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
                 if (!response.ok) {
@@ -763,11 +812,14 @@
             }
         }
 
-        function addLoadingIndicator() {
+        function addLoadingIndicator(useRag = false) {
             const id = 'loading-' + Date.now();
             const div = document.createElement('div');
             div.id = id;
             div.className = 'message assistant';
+            const message = useRag
+                ? 'Buscando em documentos e respondendo...'
+                : 'Claude esta pensando...';
             div.innerHTML = `
                 <div class="loading-indicator">
                     <div class="typing-dots">
@@ -775,7 +827,7 @@
                         <span></span>
                         <span></span>
                     </div>
-                    <span>Claude esta pensando...</span>
+                    <span>${message}</span>
                 </div>
             `;
             messagesContainer.appendChild(div);

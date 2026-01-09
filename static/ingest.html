@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload de Documentos - Claude Chat</title>
+    <style>
+        :root {
+            --claude-bg: #f5f4ef;
+            --claude-surface: #ffffff;
+            --claude-border: #e8e6e1;
+            --claude-text: #3d3929;
+            --claude-text-secondary: #6b6651;
+            --claude-accent: #d97706;
+            --claude-accent-hover: #b45309;
+            --radius: 16px;
+            --radius-sm: 10px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Styrene A', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--claude-bg);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            color: var(--claude-text);
+        }
+
+        .app-container {
+            max-width: 800px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+            flex: 1;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 500;
+            color: var(--claude-text);
+            letter-spacing: -0.3px;
+            margin-bottom: 0.5rem;
+        }
+
+        .header .subtitle {
+            font-size: 0.875rem;
+            color: var(--claude-text-secondary);
+        }
+
+        .actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.9375rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            text-decoration: none;
+            display: inline-block;
+            border: none;
+        }
+
+        .btn-primary {
+            background: var(--claude-accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--claude-accent-hover);
+        }
+
+        .btn-secondary {
+            background: var(--claude-surface);
+            color: var(--claude-text);
+            border: 1px solid var(--claude-border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--claude-bg);
+        }
+
+        .upload-container {
+            background: var(--claude-surface);
+            border-radius: var(--radius);
+            padding: 2rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+        }
+
+        .dropzone {
+            border: 2px dashed var(--claude-border);
+            border-radius: var(--radius-sm);
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .dropzone:hover, .dropzone.dragover {
+            border-color: var(--claude-accent);
+            background: rgba(217, 119, 6, 0.05);
+        }
+
+        .dropzone-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .dropzone-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--claude-text);
+            margin-bottom: 0.5rem;
+        }
+
+        .dropzone-subtitle {
+            font-size: 0.875rem;
+            color: var(--claude-text-secondary);
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .file-list {
+            margin-top: 2rem;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--claude-bg);
+            border-radius: var(--radius-sm);
+            margin-bottom: 0.75rem;
+        }
+
+        .file-icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+
+        .file-info {
+            flex: 1;
+        }
+
+        .file-name {
+            font-weight: 600;
+            color: var(--claude-text);
+            margin-bottom: 0.25rem;
+        }
+
+        .file-size {
+            font-size: 0.875rem;
+            color: var(--claude-text-secondary);
+        }
+
+        .file-status {
+            padding: 0.375rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8125rem;
+            font-weight: 600;
+        }
+
+        .file-status.pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .file-status.uploading {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .file-status.success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .file-status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .upload-btn {
+            width: 100%;
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background: var(--claude-accent);
+            color: white;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .upload-btn:hover:not(:disabled) {
+            background: var(--claude-accent-hover);
+        }
+
+        .upload-btn:disabled {
+            background: var(--claude-border);
+            cursor: not-allowed;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 1rem;
+            font-size: 0.75rem;
+            color: var(--claude-text-secondary);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: var(--claude-border);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--claude-accent);
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="header">
+            <h1>📤 Upload de Documentos</h1>
+            <p class="subtitle">Adicione PDFs à base de conhecimento RAG</p>
+        </div>
+
+        <div class="actions">
+            <a href="/" class="btn btn-primary">← Voltar ao Chat</a>
+            <a href="/config" class="btn btn-secondary">⚙️ Ver Configurações</a>
+        </div>
+
+        <div class="upload-container">
+            <div class="dropzone" id="dropzone">
+                <div class="dropzone-icon">📄</div>
+                <div class="dropzone-title">Arraste PDFs aqui ou clique para selecionar</div>
+                <div class="dropzone-subtitle">Formatos suportados: PDF</div>
+            </div>
+            <input type="file" id="fileInput" accept=".pdf" multiple>
+
+            <div id="fileList" class="file-list" style="display: none;"></div>
+
+            <button class="upload-btn" id="uploadBtn" style="display: none;">
+                📤 Enviar para Base RAG
+            </button>
+        </div>
+
+        <div class="footer">
+            Powered by Claude + E2B Sandbox
+        </div>
+    </div>
+
+    <script>
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const uploadBtn = document.getElementById('uploadBtn');
+        let selectedFiles = [];
+
+        // Click to select
+        dropzone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Drag & drop
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('dragover');
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+            handleFiles(files);
+        });
+
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            handleFiles(files);
+        });
+
+        function handleFiles(files) {
+            selectedFiles = files;
+            if (files.length === 0) return;
+
+            fileList.style.display = 'block';
+            uploadBtn.style.display = 'block';
+
+            fileList.innerHTML = files.map((file, index) => `
+                <div class="file-item" id="file-${index}">
+                    <div class="file-icon">📄</div>
+                    <div class="file-info">
+                        <div class="file-name">${file.name}</div>
+                        <div class="file-size">${formatSize(file.size)}</div>
+                    </div>
+                    <div class="file-status pending">Aguardando</div>
+                </div>
+            `).join('');
+        }
+
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        uploadBtn.addEventListener('click', async () => {
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = '⏳ Enviando...';
+
+            for (let i = 0; i < selectedFiles.length; i++) {
+                const file = selectedFiles[i];
+                const fileItem = document.getElementById(`file-${i}`);
+                const statusEl = fileItem.querySelector('.file-status');
+
+                try {
+                    // Update status
+                    statusEl.textContent = 'Enviando...';
+                    statusEl.className = 'file-status uploading';
+
+                    // Read file as text
+                    const content = await file.text();
+
+                    // Send to RAG backend
+                    const response = await fetch('http://localhost:8001/v1/rag/ingest', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            content: content,
+                            source: file.name,
+                            doc_type: 'pdf'
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const result = await response.json();
+
+                    // Success
+                    statusEl.textContent = `✓ ${result.chunks || 0} chunks`;
+                    statusEl.className = 'file-status success';
+
+                } catch (error) {
+                    statusEl.textContent = '✗ Erro';
+                    statusEl.className = 'file-status error';
+                    console.error('Upload error:', error);
+                }
+            }
+
+            uploadBtn.textContent = '✓ Concluído!';
+            setTimeout(() => {
+                uploadBtn.textContent = '📤 Enviar para Base RAG';
+                uploadBtn.disabled = false;
+                selectedFiles = [];
+                fileInput.value = '';
+            }, 2000);
+        });
+    </script>
+</body>
+</html>

@@ -114,6 +114,30 @@ async def recents_page():
     return FileResponse(html_path)
 
 
+@router.get("/config")
+async def config_page():
+    """Página de configurações RAG."""
+    html_path = CURRENT_DIR / "static" / "config.html"
+    if not html_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="config.html não encontrado"
+        )
+    return FileResponse(html_path)
+
+
+@router.get("/ingest")
+async def ingest_page():
+    """Página de upload de documentos."""
+    html_path = CURRENT_DIR / "static" / "ingest.html"
+    if not html_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="ingest.html não encontrado"
+        )
+    return FileResponse(html_path)
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     try:
@@ -155,7 +179,7 @@ async def health():
 
 # ===== ENDPOINTS SSE STREAMING (Angular SDK) =====
 
-async def generate_sse_response(message: str, session_id: str):
+async def generate_sse_response(message: str, session_id: str, use_rag: bool = False):
     """Gera resposta SSE no formato esperado pelo Angular."""
     try:
         with SandboxManager.create_sandbox() as sandbox:
@@ -168,8 +192,42 @@ async def generate_sse_response(message: str, session_id: str):
             # Adicionar mensagem do usuário à sessão
             SessionManager.add_message(session_id, "user", message)
 
+            # Se RAG está ativo, buscar contexto primeiro
+            query_message = message
+            if use_rag:
+                try:
+                    import httpx
+                    async with httpx.AsyncClient() as client:
+                        # Usar endpoint de teste (sem autenticação)
+                        rag_response = await client.get(
+                            f'http://localhost:8001/v1/rag/search/test?query={message}&top_k=3'
+                        )
+                        if rag_response.status_code == 200:
+                            rag_data = rag_response.json()
+                            results = rag_data.get('results', [])
+
+                            if results:
+                                # Montar contexto com documentos
+                                context = "\n\n".join([
+                                    f"[Fonte: {r['source']}]\n{r['content'][:1000]}"
+                                    for r in results
+                                ])
+
+                                query_message = f"""<base_conhecimento>
+{context}
+</base_conhecimento>
+
+IMPORTANTE: Responda APENAS com base nos documentos acima da <base_conhecimento>.
+Se a informação não estiver nos documentos, diga: "Não encontrei essa informação na base de conhecimento."
+NÃO use conhecimento geral ou informações externas.
+
+Pergunta: {message}"""
+                                print(f"📚 RAG: {len(results)} documentos encontrados")
+                except Exception as e:
+                    print(f"⚠️ Erro ao buscar RAG: {e}")
+
             # Obter resposta do modelo
-            response_text = SandboxManager.send_message(sandbox, message)
+            response_text = SandboxManager.send_message(sandbox, query_message)
 
             # Detectar e salvar artefatos automaticamente
             modified_response, artifacts_count = extract_and_save_artifacts(response_text)
@@ -212,10 +270,10 @@ async def generate_sse_response(message: str, session_id: str):
 async def chat_stream(req: StreamChatRequest):
     """Endpoint de chat com SSE streaming para Angular SDK."""
     # Buscar ou criar sessão
-    session = SessionManager.get_or_create_session(req.session_id, req.model or "haiku")
+    session = SessionManager.get_or_create_session(req.session_id, req.model or "minimax")
 
     return StreamingResponse(
-        generate_sse_response(req.message, session.session_id),
+        generate_sse_response(req.message, session.session_id, req.use_rag or False),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

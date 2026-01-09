@@ -24,7 +24,8 @@ class HealthResponse(BaseModel):
 class StreamChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=5000)
     session_id: Optional[str] = Field(default=None)
-    model: Optional[str] = Field(default="haiku")
+    model: Optional[str] = Field(default="minimax")
+    use_rag: Optional[bool] = Field(default=False)
 
 class ChatMessage(BaseModel):
     id: Optional[str] = Field(default_factory=lambda: str(uuid.uuid4()))
