@@ -349,27 +349,22 @@
 
                 try {
                     // Update status
-                    statusEl.textContent = 'Enviando...';
+                    statusEl.textContent = 'Processando...';
                     statusEl.className = 'file-status uploading';
 
-                    // Read file as text
-                    const content = await file.text();
+                    // Criar FormData para upload de arquivo binário
+                    const formData = new FormData();
+                    formData.append('file', file);
 
-                    // Send to RAG backend
-                    const response = await fetch('http://localhost:8001/v1/rag/ingest', {
+                    // Enviar para endpoint local que faz ingest via script
+                    const response = await fetch('/api/upload/pdf', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            content: content,
-                            source: file.name,
-                            doc_type: 'pdf'
-                        })
+                        body: formData
                     });
 
                     if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
+                        const error = await response.json();
+                        throw new Error(error.detail || `HTTP ${response.status}`);
                     }
 
                     const result = await response.json();

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List
 import json
 import asyncio
+import os
 
 from .models import (
     ChatRequest, ChatResponse, HealthResponse,
@@ -28,8 +29,8 @@ def extract_and_save_artifacts(response_text: str) -> tuple[str, int]:
     import re
     from datetime import datetime
 
-    # Regex para detectar code blocks markdown: ```lang\ncode\n```
-    pattern = r'```(\w+)?\n(.*?)```'
+    # Regex para detectar code blocks markdown: ```lang\ncode\n``` ou ```\ncode\n```
+    pattern = r'```(\w+)?\s*(.*?)```'
     matches = re.findall(pattern, response_text, re.DOTALL)
 
     if not matches:
@@ -62,7 +63,20 @@ def extract_and_save_artifacts(response_text: str) -> tuple[str, int]:
             'jsx': '.jsx',
         }
 
-        ext = ext_map.get(lang.lower(), '.txt') if lang else '.txt'
+        # Se não tem linguagem especificada, tentar detectar pelo conteúdo
+        if not lang:
+            code_lower = code[:200].lower()
+            if '<!doctype' in code_lower or '<html' in code_lower:
+                ext = '.html'
+            elif code_lower.strip().startswith('{') or code_lower.strip().startswith('['):
+                ext = '.json'
+            elif 'def ' in code or 'import ' in code or 'class ' in code:
+                ext = '.py'
+            else:
+                ext = '.txt'
+        else:
+            ext = ext_map.get(lang.lower(), '.txt')
+
         filename = f"artifact_{timestamp}_{i+1}{ext}"
 
         # Salvar arquivo
@@ -159,6 +173,30 @@ async def documents_page():
         raise HTTPException(
             status_code=404,
             detail="documents.html não encontrado"
+        )
+    return FileResponse(html_path)
+
+
+@router.get("/tools")
+async def tools_page():
+    """Página de ferramentas disponíveis."""
+    html_path = CURRENT_DIR / "static" / "tools.html"
+    if not html_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="tools.html não encontrado"
+        )
+    return FileResponse(html_path)
+
+
+@router.get("/document-detail")
+async def document_detail_page():
+    """Página de detalhes de um documento."""
+    html_path = CURRENT_DIR / "static" / "document-detail.html"
+    if not html_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="document-detail.html não encontrado"
         )
     return FileResponse(html_path)
 
@@ -277,7 +315,15 @@ Pergunta: {message}"""
             if response_text:
                 AuditTrail.start_step(session_id, "extract_artifacts")
                 modified_response, artifacts_count = extract_and_save_artifacts(response_text)
-                AuditTrail.end_step(session_id, "extract_artifacts", "success", f"{artifacts_count} artefatos" if artifacts_count > 0 else None)
+
+                # Atualizar details do step com contagem de artefatos
+                if session_id in AuditTrail._trails:
+                    for step in reversed(AuditTrail._trails[session_id]):
+                        if step.step == "extract_artifacts" and step.status == "running":
+                            step.details = {"artifacts_created": artifacts_count}
+                            break
+
+                AuditTrail.end_step(session_id, "extract_artifacts", "success")
             else:
                 modified_response = ""
                 artifacts_count = 0
@@ -522,3 +568,91 @@ async def get_audit_trail(session_id: str):
         "trail": trail,
         "stats": stats
     }
+
+
+# ===== ENDPOINTS DE UPLOAD =====
+
+from fastapi import File, UploadFile
+import subprocess
+import tempfile
+
+@router.post("/api/upload/pdf")
+async def upload_pdf(file: UploadFile = File(...)):
+    """Upload de PDF para ingestão no RAG."""
+    try:
+        # Salvar arquivo temporário
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        print(f"📤 Upload recebido: {file.filename} ({len(content)} bytes)")
+
+        # Copiar para diretório ingest do claude_rag_sdk
+        ingest_dir = Path(__file__).parent.parent / "claude_rag_sdk" / "ingest"
+        ingest_dir.mkdir(exist_ok=True)
+
+        dest_path = ingest_dir / file.filename
+        Path(tmp_path).rename(dest_path)
+
+        print(f"📁 Salvo em: {dest_path}")
+
+        # Executar script de ingest
+        ingest_script = Path(__file__).parent.parent / "claude_rag_sdk" / "scripts" / "ingest.py"
+
+        if not ingest_script.exists():
+            raise HTTPException(status_code=500, detail="Script de ingest não encontrado")
+
+        print(f"🔄 Executando ingest...")
+        result = subprocess.run(
+            ["python", str(ingest_script), str(dest_path)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=str(ingest_script.parent.parent),
+            env={**dict(os.environ), "PYTHONPATH": str(ingest_script.parent.parent.parent)}
+        )
+
+        # Limpar arquivo temporário se ainda existir
+        if Path(tmp_path).exists():
+            Path(tmp_path).unlink(missing_ok=True)
+
+        if result.returncode == 0:
+            print(f"✅ Ingest concluído: {file.filename}")
+            print(f"Script output:\n{result.stdout}")
+
+            # Tentar parsear chunks do output
+            chunks = 0
+            output_text = result.stdout + result.stderr
+
+            # Procurar padrões: "X chunks", "Chunks: X", "chunks_stored: X"
+            import re
+            patterns = [
+                r'(\d+)\s+chunks',
+                r'chunks[:\s]+(\d+)',
+                r'total[_\s]+chunks[:\s]+(\d+)'
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, output_text, re.IGNORECASE)
+                if match:
+                    chunks = int(match.group(1))
+                    break
+
+            return {
+                "success": True,
+                "filename": file.filename,
+                "chunks": chunks,
+                "message": "PDF ingerido com sucesso! Verifique em /documents",
+                "output": result.stdout[:500]  # Truncar output
+            }
+        else:
+            print(f"❌ Erro no ingest:\n{result.stderr}\n{result.stdout}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro no ingest: {result.stderr or result.stdout}"
+            )
+
+    except Exception as e:
+        print(f"❌ Erro no upload: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

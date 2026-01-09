@@ -264,7 +264,7 @@
                 container.innerHTML = `
                     <div class="documents-grid">
                         ${docs.map(doc => `
-                            <div class="document-card">
+                            <div class="document-card" style="cursor: pointer;" onclick="window.location.href='/document-detail?id=${doc.id}'">
                                 <div class="document-header">
                                     <div class="document-icon">📄</div>
                                     <div class="document-name">${doc.nome || doc.source || 'Sem nome'}</div>
